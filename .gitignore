@@ -1,7 +1,7 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Next.js 16 + Prisma workspace ignore rules. Keep `.env.test` tracked per the Next.js environment variables guide.
 
-# dependencies
-/node_modules
+## Core dependencies -------------------------------------------------------
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -9,33 +9,69 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+.npm/
+.pnpm-store/
 
-# testing
-/coverage
+## Build + runtime artifacts -----------------------------------------------
+.next/
+.next/cache/
+.next/static/css/
+out/
+build/
+dist/
+.turbo/
+.swc/
+.vercel/
 
-# next.js
-/.next/
-/out/
+## TypeScript ---------------------------------------------------------------
+*.tsbuildinfo
+next-env.d.ts
 
-# production
-/build
+## Testing / coverage -------------------------------------------------------
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+.vitest/
+cypress/screenshots/
+cypress/videos/
 
-# misc
-.DS_Store
-*.pem
-
-# debug
+## Logs & diagnostics -------------------------------------------------------
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+bun-debug.log*
+*.log
+.eslintcache
 
-# env files (can opt-in for committing if needed)
-.env*
+## Environment & secrets ----------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.test
+.env.local
+.env.development.local
+.env.production.local
+.env*.local
+.envrc
+.envrc.*
+*.pem
 
-# vercel
-.vercel
+## Prisma & app data --------------------------------------------------------
+prisma/dev.db
+prisma/*.db
+prisma/*.sqlite
+prisma/*.db-journal
+lib/generated/prisma/
+uploads/
+storage/
+tmp/
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+## OS / editor cruft --------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+.history/
