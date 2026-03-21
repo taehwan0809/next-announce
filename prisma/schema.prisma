@@ -14,6 +14,7 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
+  passwordHash String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -28,11 +29,13 @@ model Presentation {
   title     String
   script    String?  @db.Text // 사용자가 입력한 대본 (선택사항)
   audioUrl  String   // S3에 저장된 음성 파일 URL
+  targetMinDurationSec Int?
+  targetMaxDurationSec Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   transcript      Transcript?
   analysisResult  AnalysisResult?
@@ -103,10 +106,11 @@ model PronunciationMistake {
   position   Int // 문장에서의 위치
   severity   String // 'minor' | 'moderate' | 'major'
 
-  pronunciationAnalysisId String                @unique
+  pronunciationAnalysisId String
   pronunciationAnalysis   PronunciationAnalysis @relation(fields: [pronunciationAnalysisId], references: [id], onDelete: Cascade)
 
   @@map("pronunciation_mistakes")
+  @@index([pronunciationAnalysisId])
 }
 
 // AI 피드백 테이블

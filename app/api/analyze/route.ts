@@ -1,19 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToS3 } from '@/lib/s3';
+import { deleteFromS3, uploadToS3 } from '@/lib/s3';
 import { transcribeAudio, analyzePresentation, analyzePronunciation } from '@/lib/openai';
 import { analyzeAudio } from '@/lib/analysis';
+import { getSessionUser } from '@/lib/auth';
+import { presentationInclude, serializePresentation } from '@/lib/presentations';
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getSessionUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: '로그인이 필요합니다.' },
+        { status: 401 }
+      );
+    }
+
     const formData = await request.formData();
     const audioFile = formData.get('audio') as File;
-    const title = formData.get('title') as string;
-    const script = formData.get('script') as string | null;
-    const duration = parseFloat(formData.get('duration') as string);
-    const userId = formData.get('userId') as string; // 임시로 받음 (나중에 인증 추가)
+    const presentationId = (formData.get('presentationId') as string | null)?.trim() ?? '';
+    const title = (formData.get('title') as string | null)?.trim() ?? '';
+    const rawScript = formData.get('script') as string | null;
+    const script = rawScript?.trim() ? rawScript.trim() : null;
+    const duration = Number.parseFloat(formData.get('duration') as string);
+    const targetMinDurationSec = Number.parseFloat(
+      (formData.get('targetMinDurationSec') as string | null) ?? ''
+    );
+    const targetMaxDurationSec = Number.parseFloat(
+      (formData.get('targetMaxDurationSec') as string | null) ?? ''
+    );
+    const normalizedTargetMinDurationSec =
+      Number.isFinite(targetMinDurationSec) && targetMinDurationSec > 0
+        ? Math.round(targetMinDurationSec)
+        : null;
+    const normalizedTargetMaxDurationSec =
+      Number.isFinite(targetMaxDurationSec) && targetMaxDurationSec > 0
+        ? Math.round(targetMaxDurationSec)
+        : null;
 
-    if (!audioFile || !title || !duration) {
+    if (!audioFile || !title || !Number.isFinite(duration) || duration <= 0) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -29,138 +55,223 @@ export async function POST(request: NextRequest) {
     const transcript = await transcribeAudio(audioFile);
 
     // 3. 음성 분석 (속도, 추임새, 침묵)
-    const audioAnalysis = analyzeAudio(transcript, duration);
+    const audioAnalysis = analyzeAudio(
+      transcript,
+      duration,
+      normalizedTargetMinDurationSec,
+      normalizedTargetMaxDurationSec
+    );
 
     // 4. GPT로 피드백 및 질문 생성
-    const { feedback, questions } = await analyzePresentation(transcript, script || undefined);
+    const { feedback, questions } = await analyzePresentation(
+      transcript.text,
+      script || undefined
+    );
 
     // 5. 발음 분석 (대본이 있는 경우만)
     let pronunciationData = null;
     if (script) {
-      pronunciationData = await analyzePronunciation(transcript, script);
+      pronunciationData = await analyzePronunciation(transcript.text, script);
     }
 
-    // 6. 데이터베이스에 저장
-    const presentation = await prisma.presentation.create({
-      data: {
-        title,
-        script,
-        audioUrl,
-        userId,
-        transcript: {
-          create: {
-            text: transcript,
-          },
-        },
-        analysisResult: {
-          create: {
-            duration: Math.floor(duration),
-            speakingSpeedWpm: audioAnalysis.speakingSpeed.wpm,
-            speakingSpeedRating: audioAnalysis.speakingSpeed.rating,
-            fillerWordsTotal: audioAnalysis.fillerWords.total,
-            fillerWords: audioAnalysis.fillerWords.words,
-            silencesTotal: audioAnalysis.silences.total,
-            silencesAvgDuration: audioAnalysis.silences.avgDuration,
-            silencesLongest: audioAnalysis.silences.longest,
-            pronunciationAnalysis: pronunciationData
-              ? {
-                  create: {
-                    accuracy: pronunciationData.accuracy,
-                    wellPronounced: pronunciationData.wellPronounced,
-                    mistakes: {
-                      create: pronunciationData.mistakes.map((mistake) => ({
-                        expected: mistake.expected,
-                        recognized: mistake.recognized,
-                        position: mistake.position,
-                        severity: mistake.severity,
-                      })),
-                    },
-                  },
-                }
-              : undefined,
-          },
-        },
-        feedback: {
-          create: {
-            overall: feedback.overall,
-            score: feedback.score,
-            strengths: feedback.strengths,
-            improvements: feedback.improvements,
-          },
-        },
-        questions: {
-          create: questions.map((q) => ({
-            question: q.question,
-            category: q.category,
-            difficulty: q.difficulty,
-          })),
-        },
-      },
-      include: {
-        transcript: true,
-        analysisResult: {
-          include: {
-            pronunciationAnalysis: {
-              include: {
-                mistakes: true,
+    const analysisPayload = {
+      duration: Math.round(audioAnalysis.duration),
+      speakingSpeedWpm: audioAnalysis.speakingSpeed.wpm,
+      speakingSpeedRating: audioAnalysis.speakingSpeed.rating,
+      fillerWordsTotal: audioAnalysis.fillerWords.total,
+      fillerWords: audioAnalysis.fillerWords.words,
+      silencesTotal: audioAnalysis.silences.total,
+      silencesAvgDuration: audioAnalysis.silences.avgDuration,
+      silencesLongest: audioAnalysis.silences.longest,
+    };
+
+    const existingPresentation =
+      presentationId.length > 0
+        ? await prisma.presentation.findFirst({
+            where: {
+              id: presentationId,
+              userId: user.id,
+            },
+            include: {
+              analysisResult: {
+                include: {
+                  pronunciationAnalysis: true,
+                },
               },
             },
-          },
-        },
-        feedback: true,
-        questions: true,
-      },
-    });
+          })
+        : null;
 
-    // 7. 응답 데이터 형식 변환
-    const response = {
-      id: presentation.id,
-      title: presentation.title,
-      script: presentation.script,
-      audioUrl: presentation.audioUrl,
-      transcript: presentation.transcript?.text || '',
-      analysis: {
-        speakingSpeed: {
-          wpm: presentation.analysisResult!.speakingSpeedWpm,
-          rating: presentation.analysisResult!.speakingSpeedRating as 'slow' | 'normal' | 'fast',
-        },
-        fillerWords: {
-          total: presentation.analysisResult!.fillerWordsTotal,
-          words: presentation.analysisResult!.fillerWords as { word: string; count: number }[],
-        },
-        silences: {
-          total: presentation.analysisResult!.silencesTotal,
-          avgDuration: presentation.analysisResult!.silencesAvgDuration,
-          longest: presentation.analysisResult!.silencesLongest,
-        },
-        duration: presentation.analysisResult!.duration,
-        pronunciation: presentation.analysisResult!.pronunciationAnalysis
-          ? {
-              accuracy: presentation.analysisResult!.pronunciationAnalysis.accuracy,
-              mistakes: presentation.analysisResult!.pronunciationAnalysis.mistakes.map((m) => ({
-                expected: m.expected,
-                recognized: m.recognized,
-                position: m.position,
-                severity: m.severity as 'minor' | 'moderate' | 'major',
+    // 6. 데이터베이스에 저장
+    const presentation = existingPresentation
+      ? await prisma.presentation.update({
+          where: {
+            id: existingPresentation.id,
+          },
+          data: {
+            title,
+            script,
+            audioUrl,
+            targetMinDurationSec: normalizedTargetMinDurationSec,
+            targetMaxDurationSec: normalizedTargetMaxDurationSec,
+            transcript: {
+              upsert: {
+                create: {
+                  text: transcript.text,
+                },
+                update: {
+                  text: transcript.text,
+                },
+              },
+            },
+            analysisResult: {
+              upsert: {
+                create: {
+                  ...analysisPayload,
+                  pronunciationAnalysis: pronunciationData
+                    ? {
+                        create: {
+                          accuracy: pronunciationData.accuracy,
+                          wellPronounced: pronunciationData.wellPronounced,
+                          mistakes: {
+                            create: pronunciationData.mistakes.map((mistake) => ({
+                              expected: mistake.expected,
+                              recognized: mistake.recognized,
+                              position: mistake.position,
+                              severity: mistake.severity,
+                            })),
+                          },
+                        },
+                      }
+                    : undefined,
+                },
+                update: {
+                  ...analysisPayload,
+                  pronunciationAnalysis: pronunciationData
+                    ? {
+                        upsert: {
+                          create: {
+                            accuracy: pronunciationData.accuracy,
+                            wellPronounced: pronunciationData.wellPronounced,
+                            mistakes: {
+                              create: pronunciationData.mistakes.map((mistake) => ({
+                                expected: mistake.expected,
+                                recognized: mistake.recognized,
+                                position: mistake.position,
+                                severity: mistake.severity,
+                              })),
+                            },
+                          },
+                          update: {
+                            accuracy: pronunciationData.accuracy,
+                            wellPronounced: pronunciationData.wellPronounced,
+                            mistakes: {
+                              deleteMany: {},
+                              create: pronunciationData.mistakes.map((mistake) => ({
+                                expected: mistake.expected,
+                                recognized: mistake.recognized,
+                                position: mistake.position,
+                                severity: mistake.severity,
+                              })),
+                            },
+                          },
+                        },
+                      }
+                    : existingPresentation.analysisResult?.pronunciationAnalysis
+                      ? { delete: true }
+                      : undefined,
+                },
+              },
+            },
+            feedback: {
+              upsert: {
+                create: {
+                  overall: feedback.overall,
+                  score: feedback.score,
+                  strengths: feedback.strengths,
+                  improvements: feedback.improvements,
+                },
+                update: {
+                  overall: feedback.overall,
+                  score: feedback.score,
+                  strengths: feedback.strengths,
+                  improvements: feedback.improvements,
+                },
+              },
+            },
+            questions: {
+              deleteMany: {},
+              create: questions.map((q) => ({
+                question: q.question,
+                category: q.category,
+                difficulty: q.difficulty,
               })),
-              wellPronounced: presentation.analysisResult!.pronunciationAnalysis.wellPronounced as string[],
-            }
-          : undefined,
-      },
-      feedback: {
-        overall: presentation.feedback!.overall,
-        strengths: presentation.feedback!.strengths as string[],
-        improvements: presentation.feedback!.improvements as string[],
-        score: presentation.feedback!.score,
-      },
-      questions: presentation.questions.map((q) => ({
-        id: q.id,
-        question: q.question,
-        category: q.category as 'content' | 'clarification' | 'challenge',
-        difficulty: q.difficulty as 'easy' | 'medium' | 'hard',
-      })),
-      createdAt: presentation.createdAt,
-    };
+            },
+          },
+          include: presentationInclude,
+        })
+      : await prisma.presentation.create({
+          data: {
+            title,
+            script,
+            audioUrl,
+            targetMinDurationSec: normalizedTargetMinDurationSec,
+            targetMaxDurationSec: normalizedTargetMaxDurationSec,
+            userId: user.id,
+            transcript: {
+              create: {
+                text: transcript.text,
+              },
+            },
+            analysisResult: {
+              create: {
+                ...analysisPayload,
+                pronunciationAnalysis: pronunciationData
+                  ? {
+                      create: {
+                        accuracy: pronunciationData.accuracy,
+                        wellPronounced: pronunciationData.wellPronounced,
+                        mistakes: {
+                          create: pronunciationData.mistakes.map((mistake) => ({
+                            expected: mistake.expected,
+                            recognized: mistake.recognized,
+                            position: mistake.position,
+                            severity: mistake.severity,
+                          })),
+                        },
+                      },
+                    }
+                  : undefined,
+              },
+            },
+            feedback: {
+              create: {
+                overall: feedback.overall,
+                score: feedback.score,
+                strengths: feedback.strengths,
+                improvements: feedback.improvements,
+              },
+            },
+            questions: {
+              create: questions.map((q) => ({
+                question: q.question,
+                category: q.category,
+                difficulty: q.difficulty,
+              })),
+            },
+          },
+          include: presentationInclude,
+        });
+
+    if (existingPresentation?.audioUrl && existingPresentation.audioUrl !== audioUrl) {
+      try {
+        await deleteFromS3(existingPresentation.audioUrl);
+      } catch (cleanupError) {
+        console.error('Failed to delete replaced audio file from S3:', cleanupError);
+      }
+    }
+
+    const response = serializePresentation(presentation);
 
     return NextResponse.json(response);
   } catch (error) {

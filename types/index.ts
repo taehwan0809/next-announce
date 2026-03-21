@@ -2,6 +2,7 @@ export interface AnalysisResult {
   speakingSpeed: {
     wpm: number; // words per minute
     rating: 'slow' | 'normal' | 'fast';
+    measuredSeconds: number;
   };
   fillerWords: {
     total: number;
@@ -11,8 +12,15 @@ export interface AnalysisResult {
     total: number;
     avgDuration: number; // seconds
     longest: number; // seconds
+    rating: 'stable' | 'balanced' | 'pause-heavy';
   };
   duration: number; // total recording duration in seconds
+  targetDuration: {
+    minSeconds?: number;
+    maxSeconds?: number;
+    status: 'short' | 'good' | 'long' | 'none';
+    message: string;
+  };
   pronunciation?: PronunciationAnalysis; // Optional: only if script is provided
 }
 
@@ -46,13 +54,25 @@ export interface Question {
 export interface PresentationData {
   id: string;
   title: string;
-  script?: string; // Optional: user's prepared script
+  script?: string | null; // Optional: user's prepared script
   audioUrl: string;
   transcript: string; // AI-recognized speech
   analysis: AnalysisResult;
   feedback: Feedback;
   questions: Question[];
-  createdAt: Date;
+  createdAt: string;
+}
+
+export interface DashboardPresentationSummary {
+  id: string;
+  title: string;
+  script: string | null;
+  audioUrl: string;
+  createdAt: string;
+  transcriptPreview: string;
+  feedbackScore: number | null;
+  questionCount: number;
+  hasPronunciation: boolean;
 }
 
 export type RecordingStatus = 'idle' | 'recording' | 'processing' | 'completed' | 'error';

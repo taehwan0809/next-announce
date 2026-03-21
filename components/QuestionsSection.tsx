@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Question } from '@/types';
 
 interface QuestionsSectionProps {
@@ -8,9 +7,6 @@ interface QuestionsSectionProps {
 }
 
 export default function QuestionsSection({ questions }: QuestionsSectionProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [userAnswers, setUserAnswers] = useState<{ [key: string]: string }>({});
-
   const getCategoryIcon = (category: Question['category']) => {
     switch (category) {
       case 'content':
@@ -82,7 +78,7 @@ export default function QuestionsSection({ questions }: QuestionsSectionProps) {
 
       <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg">
         <p className="text-sm text-gray-700">
-          <strong className="text-gray-900">💡 활용 팁:</strong> 각 질문에 대한 답변을 미리 준비하면 실제 발표에서 더욱 자신감 있게 답할 수 있습니다.
+          <strong className="text-gray-900">💡 활용 팁:</strong> 실제 질의응답에서 이런 질문이 나올 수 있다는 점을 먼저 떠올려 보고, 발표 내용 중 어떤 부분이 꼬리 질문으로 이어질지 생각해보세요.
         </p>
       </div>
 
@@ -90,86 +86,29 @@ export default function QuestionsSection({ questions }: QuestionsSectionProps) {
         {questions.map((question) => (
           <div
             key={question.id}
-            className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow"
+            className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow"
           >
-            <div
-              className="p-5 cursor-pointer hover:bg-gray-50 transition-colors"
-              onClick={() => setExpandedId(expandedId === question.id ? null : question.id)}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${getCategoryColor(question.category)}`}>
-                      {getCategoryIcon(question.category)}
-                      {getCategoryText(question.category)}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getDifficultyColor(question.difficulty)}`}>
-                      {getDifficultyText(question.difficulty)}
-                    </span>
-                  </div>
-                  <p className="text-lg font-medium text-gray-900">
-                    {question.question}
-                  </p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${getCategoryColor(question.category)}`}>
+                    {getCategoryIcon(question.category)}
+                    {getCategoryText(question.category)}
+                  </span>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getDifficultyColor(question.difficulty)}`}>
+                    {getDifficultyText(question.difficulty)}
+                  </span>
                 </div>
-                <button className="flex-shrink-0 p-1 hover:bg-gray-200 rounded-lg transition-colors">
-                  <svg
-                    className={`w-5 h-5 text-gray-500 transition-transform ${expandedId === question.id ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+                <p className="text-lg font-medium text-gray-900">
+                  {question.question}
+                </p>
+                <p className="mt-3 text-sm text-gray-600">
+                  {question.category === 'content' && '발표 핵심 내용을 더 구체적으로 물어볼 수 있는 질문입니다.'}
+                  {question.category === 'clarification' && '청중이 이해가 덜 된 부분을 다시 짚을 때 나올 수 있는 질문입니다.'}
+                  {question.category === 'challenge' && '근거, 한계, 반대 관점을 묻는 상황에서 나올 수 있는 질문입니다.'}
+                </p>
               </div>
             </div>
-
-            {expandedId === question.id && (
-              <div className="px-5 pb-5 space-y-4">
-                <div className="h-px bg-gray-200"></div>
-
-                {/* Answer Input */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    답변 작성하기
-                  </label>
-                  <textarea
-                    value={userAnswers[question.id] || ''}
-                    onChange={(e) => setUserAnswers({ ...userAnswers, [question.id]: e.target.value })}
-                    placeholder="이 질문에 대한 답변을 작성해보세요..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
-                    rows={4}
-                  />
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-xs text-gray-500">
-                      {userAnswers[question.id]?.length || 0} 글자
-                    </span>
-                    {userAnswers[question.id] && (
-                      <button
-                        onClick={() => {
-                          const newAnswers = { ...userAnswers };
-                          delete newAnswers[question.id];
-                          setUserAnswers(newAnswers);
-                        }}
-                        className="text-xs text-red-600 hover:text-red-700 font-medium"
-                      >
-                        답변 지우기
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Tips based on category */}
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-700">
-                    <strong className="text-gray-900">답변 팁:</strong>{' '}
-                    {question.category === 'content' && '발표 내용의 핵심을 간결하게 설명하세요.'}
-                    {question.category === 'clarification' && '구체적인 예시를 들어 명확하게 설명하세요.'}
-                    {question.category === 'challenge' && '비판적인 관점도 고려하여 논리적으로 답변하세요.'}
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         ))}
       </div>

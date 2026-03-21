@@ -7,6 +7,9 @@ interface AnalysisResultsProps {
 }
 
 export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
+  const fillersPerMinute =
+    analysis.duration > 0 ? (analysis.fillerWords.total / analysis.duration) * 60 : 0;
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -28,6 +31,55 @@ export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
       default: return '적정';
     }
   };
+
+  const getDurationStatusColor = (status: 'short' | 'good' | 'long' | 'none') => {
+    switch (status) {
+      case 'short':
+        return 'text-yellow-700 bg-yellow-50';
+      case 'long':
+        return 'text-red-700 bg-red-50';
+      case 'good':
+        return 'text-green-700 bg-green-50';
+      default:
+        return 'text-gray-600 bg-gray-100';
+    }
+  };
+
+  const getDurationStatusText = (status: 'short' | 'good' | 'long' | 'none') => {
+    switch (status) {
+      case 'short':
+        return '짧음';
+      case 'long':
+        return '김';
+      case 'good':
+        return '적정';
+      default:
+        return '미설정';
+    }
+  };
+
+  const getFillerStatus = () => {
+    if (fillersPerMinute >= 8) {
+      return {
+        label: '많음',
+        color: 'text-red-600 bg-red-50',
+      };
+    }
+
+    if (fillersPerMinute >= 4 || analysis.fillerWords.total >= 8) {
+      return {
+        label: '보통',
+        color: 'text-yellow-600 bg-yellow-50',
+      };
+    }
+
+    return {
+      label: '적음',
+      color: 'text-green-600 bg-green-50',
+    };
+  };
+
+  const fillerStatus = getFillerStatus();
 
   return (
     <div className="bg-white rounded-xl shadow-sm p-6">
@@ -51,14 +103,17 @@ export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
             <div className="text-4xl font-bold text-blue-600 mb-1">
               {analysis.speakingSpeed.wpm}
             </div>
-            <p className="text-sm text-gray-600">분당 단어 수 (WPM)</p>
+            <p className="text-sm text-gray-600">분당 발화 속도 지표</p>
           </div>
+          <p className="mt-3 text-xs text-gray-500">
+            기준: 80 미만 느림, 80~144 적정, 145 이상 빠름
+          </p>
           <p className="mt-4 text-sm text-gray-700">
             {analysis.speakingSpeed.rating === 'normal'
-              ? '적절한 속도로 발표하고 있습니다. 청중이 이해하기 좋은 속도입니다.'
+              ? `지금 속도는 ${analysis.speakingSpeed.wpm}로 비교적 안정적인 구간입니다. 청중이 따라가기 좋은 흐름이에요.`
               : analysis.speakingSpeed.rating === 'fast'
-                ? '조금 빠르게 말하고 있습니다. 속도를 늦춰보세요.'
-                : '조금 느리게 말하고 있습니다. 좀 더 활기차게 발표해보세요.'}
+                ? `현재 속도는 ${analysis.speakingSpeed.wpm}로 빠른 편입니다. 청중이 문장을 소화하기 어려울 수 있으니 문장 끝 호흡을 조금 더 길게 가져가 보세요.`
+                : `현재 속도는 ${analysis.speakingSpeed.wpm}로 비교적 느린 편입니다. 핵심 문장은 유지하되 연결 구간을 조금 더 리듬감 있게 말해보세요.`}
           </p>
         </div>
 
@@ -66,6 +121,9 @@ export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
         <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">발표 시간</h3>
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getDurationStatusColor(analysis.targetDuration.status)}`}>
+              {getDurationStatusText(analysis.targetDuration.status)}
+            </span>
           </div>
           <div className="text-center">
             <div className="text-4xl font-bold text-purple-600 mb-1">
@@ -73,24 +131,17 @@ export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
             </div>
             <p className="text-sm text-gray-600">총 발표 시간</p>
           </div>
-          <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-700">
-            <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            적절한 발표 길이입니다
-          </div>
+          <p className="mt-4 text-sm text-gray-700">
+            {analysis.targetDuration.message}
+          </p>
         </div>
 
         {/* Filler Words */}
         <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">추임새 사용</h3>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-              analysis.fillerWords.total > 20 ? 'text-red-600 bg-red-50' :
-              analysis.fillerWords.total > 10 ? 'text-yellow-600 bg-yellow-50' :
-              'text-green-600 bg-green-50'
-            }`}>
-              {analysis.fillerWords.total > 20 ? '많음' : analysis.fillerWords.total > 10 ? '보통' : '적음'}
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${fillerStatus.color}`}>
+              {fillerStatus.label}
             </span>
           </div>
           <div className="text-center mb-4">
@@ -98,6 +149,9 @@ export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
               {analysis.fillerWords.total}
             </div>
             <p className="text-sm text-gray-600">총 추임새 횟수</p>
+            <p className="mt-2 text-xs text-gray-500">
+              분당 약 {fillersPerMinute.toFixed(1)}회
+            </p>
           </div>
           <div className="space-y-2">
             {analysis.fillerWords.words.slice(0, 3).map((item, index) => (
@@ -129,7 +183,14 @@ export default function AnalysisResults({ analysis }: AnalysisResultsProps) {
             </div>
           </div>
           <div className="mt-4 p-3 bg-white rounded-lg">
-            <div className="flex items-center justify-between text-sm">
+            <p className="text-sm text-gray-700">
+              {analysis.silences.rating === 'stable'
+                ? '호흡이 비교적 안정적입니다. 침묵이 흐름을 크게 끊지 않습니다.'
+                : analysis.silences.rating === 'balanced'
+                  ? '잠시 생각을 정리하는 멈춤은 있지만, 전체 흐름은 유지되고 있습니다.'
+                  : '침묵이 길거나 잦은 편입니다. 문장 연결을 미리 연습하면 전달력이 더 좋아집니다.'}
+            </p>
+            <div className="mt-3 flex items-center justify-between text-sm">
               <span className="text-gray-700">최장 침묵</span>
               <span className="text-gray-900 font-semibold">{analysis.silences.longest.toFixed(1)}초</span>
             </div>

@@ -1,18 +1,31 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { RecordingStatus } from '@/types';
+import { PresentationData, RecordingStatus } from '@/types';
 
 interface RecordingControlsProps {
   status: RecordingStatus;
   setStatus: (status: RecordingStatus) => void;
-  hasScript: boolean;
+  presentationId?: string | null;
   title: string;
   script: string | null;
-  onAnalysisComplete: (data: any) => void;
+  targetMinDurationSec?: number | null;
+  targetMaxDurationSec?: number | null;
+  onAnalysisComplete: (data: PresentationData) => void;
+  onReset: () => void;
 }
 
-export default function RecordingControls({ status, setStatus, hasScript, title, script, onAnalysisComplete }: RecordingControlsProps) {
+export default function RecordingControls({
+  status,
+  setStatus,
+  presentationId,
+  title,
+  script,
+  targetMinDurationSec,
+  targetMaxDurationSec,
+  onAnalysisComplete,
+  onReset,
+}: RecordingControlsProps) {
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -87,7 +100,15 @@ export default function RecordingControls({ status, setStatus, hasScript, title,
       formData.append('audio', audioFile);
       formData.append('title', title);
       formData.append('duration', recordingTime.toString());
-      formData.append('userId', 'temp-user-id'); // 임시 사용자 ID
+      if (presentationId) {
+        formData.append('presentationId', presentationId);
+      }
+      if (targetMinDurationSec) {
+        formData.append('targetMinDurationSec', targetMinDurationSec.toString());
+      }
+      if (targetMaxDurationSec) {
+        formData.append('targetMaxDurationSec', targetMaxDurationSec.toString());
+      }
 
       if (script) {
         formData.append('script', script);
@@ -120,6 +141,7 @@ export default function RecordingControls({ status, setStatus, hasScript, title,
     setAudioBlob(null);
     setRecordingTime(0);
     setStatus('idle');
+    onReset();
   };
 
   const formatTime = (seconds: number) => {
@@ -176,7 +198,15 @@ export default function RecordingControls({ status, setStatus, hasScript, title,
             {formatTime(recordingTime)}
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            {status === 'recording' ? '녹음 중...' : status === 'processing' ? 'AI 분석 중...' : audioBlob ? '녹음 완료' : '녹음 대기'}
+            {status === 'recording'
+              ? '녹음 중...'
+              : status === 'processing'
+                ? 'AI 분석 중...'
+                : status === 'completed'
+                  ? '분석 완료'
+                  : audioBlob
+                    ? '녹음 완료'
+                    : '녹음 대기'}
           </p>
         </div>
 
@@ -248,6 +278,18 @@ export default function RecordingControls({ status, setStatus, hasScript, title,
               </svg>
               분석 진행 중...
             </div>
+          )}
+
+          {status === 'completed' && (
+            <button
+              onClick={resetRecording}
+              className="px-8 py-4 bg-white text-gray-700 font-semibold rounded-xl border-2 border-gray-200 hover:border-gray-300 transition-colors flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              다시 녹음하기
+            </button>
           )}
         </div>
       </div>

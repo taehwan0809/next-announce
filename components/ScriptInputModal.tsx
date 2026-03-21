@@ -134,7 +134,7 @@ export default function ScriptInputModal({ isOpen, onClose, onSubmit }: ScriptIn
                   value={script}
                   onChange={(e) => setScript(e.target.value)}
                   placeholder="예: 안녕하세요, 오늘 제가 발표할 주제는 인공지능의 미래입니다. 인공지능 기술은 우리 삶의 많은 부분을 변화시키고 있으며..."
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
+                  className="w-full resize-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-gray-900 placeholder:text-gray-400 caret-gray-900 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
                   rows={12}
                   autoFocus
                 />

@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION!,
@@ -27,4 +27,30 @@ export async function uploadToS3(
   // S3 URL 반환
   const url = `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
   return url;
+}
+
+export function getS3KeyFromUrl(fileUrl: string): string | null {
+  try {
+    const parsedUrl = new URL(fileUrl);
+    const key = parsedUrl.pathname.replace(/^\/+/, '');
+
+    return key || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteFromS3(fileUrl: string) {
+  const key = getS3KeyFromUrl(fileUrl);
+
+  if (!key) {
+    throw new Error('Invalid S3 file URL.');
+  }
+
+  const command = new DeleteObjectCommand({
+    Bucket: process.env.AWS_S3_BUCKET_NAME!,
+    Key: key,
+  });
+
+  await s3Client.send(command);
 }
