@@ -78,8 +78,8 @@ export async function createPresignedDownloadUrl(key: string) {
 // S3에서 파일 가져오기
 export async function getFileFromS3(
   key: string,
-  fileName = 'recording.webm',
-  contentType = 'audio/webm'
+  fileName = 'recording.m4a',
+  contentType = 'audio/mp4'
 ) {
   const command = new GetObjectCommand({
     Bucket: process.env.AWS_S3_BUCKET_NAME!,

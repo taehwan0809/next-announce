@@ -41,36 +41,41 @@ export default function RecordingControls({
   }, []);
 
   const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
 
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        setAudioBlob(blob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
+    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorderRef.current = mediaRecorder;
+    audioChunksRef.current = [];
 
-      mediaRecorder.start();
-      setStatus('recording');
-      setRecordingTime(0);
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data);
+      }
+    };
 
-      timerRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('마이크 접근 권한이 필요합니다.');
-    }
-  };
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(audioChunksRef.current, { type: mimeType });
+      setAudioBlob(blob);
+      stream.getTracks().forEach((track) => track.stop());
+    };
+
+    mediaRecorder.start();
+    setStatus('recording');
+    setRecordingTime(0);
+
+    timerRef.current = setInterval(() => {
+      setRecordingTime((prev) => prev + 1);
+    }, 1000);
+  } catch (error) {
+    console.error('Error accessing microphone:', error);
+    alert('마이크 접근 권한이 필요합니다.');
+  }
+};
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -91,7 +96,9 @@ export default function RecordingControls({
     setStatus('processing');
 
     try {
-      const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
+      const audioFile = new File([audioBlob], 'recording.webm', {
+  type: audioBlob.type,
+});
 
       const presignedResponse = await fetch('/api/uploads/presigned', {
         method: 'POST',
