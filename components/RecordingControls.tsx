@@ -102,6 +102,7 @@ export default function RecordingControls({
           fileName: audioFile.name,
           contentType: audioFile.type,
         }),
+        credentials: 'include',
       });
 
       if (!presignedResponse.ok) {
@@ -151,6 +152,7 @@ export default function RecordingControls({
       const response = await fetch('/api/analyze', {
         method: 'POST',
         body: formData,
+        credentials: 'include',
       });
 
       if (!response.ok) {
