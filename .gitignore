@@ -64,7 +64,6 @@ prisma/*.db
 prisma/*.sqlite
 prisma/*.db-journal
 lib/generated/prisma/
-uploads/
 storage/
 tmp/
 
