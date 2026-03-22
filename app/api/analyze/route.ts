@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     let audioKey: string;
     let transcriptionSource: File;
 
-    // ✅ 새 파일 업로드
+    // 파일 업로드
     if (audioFile) {
       const arrayBuffer = await audioFile.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
@@ -81,9 +81,7 @@ export async function POST(request: NextRequest) {
       shouldCleanupUploadedAudio = true;
 
       transcriptionSource = audioFile;
-    } 
-    // ✅ presigned 업로드된 파일 사용
-    else {
+    } else {
       audioKey = s3Key;
       uploadedKey = audioKey;
       shouldCleanupUploadedAudio = true;
@@ -123,13 +121,11 @@ export async function POST(request: NextRequest) {
 
     const presentation = existingPresentation
       ? await prisma.presentation.update({
-          where: {
-            id: existingPresentation.id,
-          },
+          where: { id: existingPresentation.id },
           data: {
             title,
             script,
-            audioUrl: audioKey, // ✅ key 저장
+            audioUrl: audioKey,
             targetMinDurationSec: normalizedTargetMinDurationSec,
             targetMaxDurationSec: normalizedTargetMaxDurationSec,
 
@@ -143,10 +139,76 @@ export async function POST(request: NextRequest) {
             analysisResult: {
               upsert: {
                 create: {
-                  ...analysisPayload,
+                  duration: analysisPayload.duration,
+                  speakingSpeedWpm: analysisPayload.speakingSpeedWpm,
+                  speakingSpeedRating: analysisPayload.speakingSpeedRating,
+                  fillerWordsTotal: analysisPayload.fillerWordsTotal,
+                  fillerWords: analysisPayload.fillerWords,
+                  silencesTotal: analysisPayload.silencesTotal,
+                  silencesAvgDuration: analysisPayload.silencesAvgDuration,
+                  silencesLongest: analysisPayload.silencesLongest,
+
+                  pronunciationAnalysis: pronunciationData
+                    ? {
+                        create: {
+                          accuracy: pronunciationData.accuracy,
+                          wellPronounced: pronunciationData.wellPronounced,
+                          mistakes: {
+                            create: pronunciationData.mistakes.map((mistake) => ({
+                              expected: mistake.expected,
+                              recognized: mistake.recognized,
+                              position: mistake.position,
+                              severity: mistake.severity,
+                            })),
+                          },
+                        },
+                      }
+                    : undefined,
                 },
+
                 update: {
-                  ...analysisPayload,
+                  duration: analysisPayload.duration,
+                  speakingSpeedWpm: analysisPayload.speakingSpeedWpm,
+                  speakingSpeedRating: analysisPayload.speakingSpeedRating,
+                  fillerWordsTotal: analysisPayload.fillerWordsTotal,
+                  fillerWords: analysisPayload.fillerWords,
+                  silencesTotal: analysisPayload.silencesTotal,
+                  silencesAvgDuration: analysisPayload.silencesAvgDuration,
+                  silencesLongest: analysisPayload.silencesLongest,
+
+                  pronunciationAnalysis: pronunciationData
+                    ? {
+                        upsert: {
+                          create: {
+                            accuracy: pronunciationData.accuracy,
+                            wellPronounced: pronunciationData.wellPronounced,
+                            mistakes: {
+                              create: pronunciationData.mistakes.map((mistake) => ({
+                                expected: mistake.expected,
+                                recognized: mistake.recognized,
+                                position: mistake.position,
+                                severity: mistake.severity,
+                              })),
+                            },
+                          },
+                          update: {
+                            accuracy: pronunciationData.accuracy,
+                            wellPronounced: pronunciationData.wellPronounced,
+                            mistakes: {
+                              deleteMany: {},
+                              create: pronunciationData.mistakes.map((mistake) => ({
+                                expected: mistake.expected,
+                                recognized: mistake.recognized,
+                                position: mistake.position,
+                                severity: mistake.severity,
+                              })),
+                            },
+                          },
+                        },
+                      }
+                    : existingPresentation?.analysisResult?.pronunciationAnalysis
+                      ? { delete: true }
+                      : undefined,
                 },
               },
             },
@@ -169,7 +231,7 @@ export async function POST(request: NextRequest) {
           data: {
             title,
             script,
-            audioUrl: audioKey, // ✅ key 저장
+            audioUrl: audioKey,
             targetMinDurationSec: normalizedTargetMinDurationSec,
             targetMaxDurationSec: normalizedTargetMaxDurationSec,
             userId: user.id,
@@ -179,7 +241,33 @@ export async function POST(request: NextRequest) {
             },
 
             analysisResult: {
-              create: analysisPayload,
+              create: {
+                duration: analysisPayload.duration,
+                speakingSpeedWpm: analysisPayload.speakingSpeedWpm,
+                speakingSpeedRating: analysisPayload.speakingSpeedRating,
+                fillerWordsTotal: analysisPayload.fillerWordsTotal,
+                fillerWords: analysisPayload.fillerWords,
+                silencesTotal: analysisPayload.silencesTotal,
+                silencesAvgDuration: analysisPayload.silencesAvgDuration,
+                silencesLongest: analysisPayload.silencesLongest,
+
+                pronunciationAnalysis: pronunciationData
+                  ? {
+                      create: {
+                        accuracy: pronunciationData.accuracy,
+                        wellPronounced: pronunciationData.wellPronounced,
+                        mistakes: {
+                          create: pronunciationData.mistakes.map((mistake) => ({
+                            expected: mistake.expected,
+                            recognized: mistake.recognized,
+                            position: mistake.position,
+                            severity: mistake.severity,
+                          })),
+                        },
+                      },
+                    }
+                  : undefined,
+              },
             },
 
             feedback: {
@@ -195,24 +283,22 @@ export async function POST(request: NextRequest) {
 
     shouldCleanupUploadedAudio = false;
 
-    // 기존 파일 삭제
     if (existingPresentation?.audioUrl && existingPresentation.audioUrl !== audioKey) {
       try {
         await deleteFromS3(existingPresentation.audioUrl);
-      } catch (cleanupError) {
-        console.error('Failed to delete old file:', cleanupError);
+      } catch (e) {
+        console.error('Failed to delete old file:', e);
       }
     }
 
-    const response = serializePresentation(presentation);
-    return NextResponse.json(response);
+    return NextResponse.json(serializePresentation(presentation));
 
   } catch (error) {
     if (shouldCleanupUploadedAudio && uploadedKey) {
       try {
         await deleteFromS3(uploadedKey);
-      } catch (cleanupError) {
-        console.error('Failed cleanup:', cleanupError);
+      } catch (e) {
+        console.error('Cleanup failed:', e);
       }
     }
 
