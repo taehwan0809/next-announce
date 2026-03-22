@@ -1,6 +1,10 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { buildSessionToken, parseOAuthState, setSessionCookie } from '@/lib/auth';
-import { exchangeAuthorizationCode, fetchCognitoUserInfo, upsertCognitoUser } from '@/lib/cognito';
+import { exchangeAuthorizationCode, upsertCognitoUser } from '@/lib/cognito';
+
+function parseIdToken(idToken: string) {
+  return JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+}
 
 export async function GET(request: NextRequest) {
   const error = request.nextUrl.searchParams.get('error');
@@ -23,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const tokenResult = await exchangeAuthorizationCode(code);
-    const profile = await fetchCognitoUserInfo(tokenResult.access_token);
+    const profile = parseIdToken(tokenResult.id_token);
 
     if (!profile.email) {
       throw new Error('OAuth 계정에서 이메일 정보를 가져오지 못했습니다.');
