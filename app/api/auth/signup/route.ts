@@ -1,8 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
-import { buildSessionToken, setSessionCookie } from '@/lib/auth';
-import { hashPassword } from '@/lib/password';
-import { prisma } from '@/lib/prisma';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { signUpWithCognito } from '@/lib/cognito';
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,37 +19,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.user.create({
-      data: {
-        email: normalizedEmail,
-        name: trimmedName,
-        passwordHash: hashPassword(password),
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-      },
+    const result = await signUpWithCognito({
+      email: normalizedEmail,
+      password,
+      name: trimmedName,
     });
 
-    const response = NextResponse.json({ user });
-    setSessionCookie(response, buildSessionToken(user.id));
-
-    return response;
+    return NextResponse.json({
+      requiresConfirmation: true,
+      email: normalizedEmail,
+      destination: result.CodeDeliveryDetails?.Destination ?? normalizedEmail,
+    });
   } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
-      return NextResponse.json(
-        { error: '이미 가입된 이메일입니다.' },
-        { status: 409 }
-      );
-    }
-
     console.error('Signup error:', error);
     return NextResponse.json(
-      { error: '회원가입에 실패했습니다.' },
+      { error: error instanceof Error ? error.message : '회원가입에 실패했습니다.' },
       { status: 500 }
     );
   }

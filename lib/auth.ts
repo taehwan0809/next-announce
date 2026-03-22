@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+﻿import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 
@@ -8,6 +8,11 @@ const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 14;
 type SessionPayload = {
   userId: string;
   expiresAt: number;
+};
+
+type OAuthStatePayload = {
+  next: string;
+  nonce: string;
 };
 
 function getAuthSecret() {
@@ -28,14 +33,13 @@ function createSignature(payload: string) {
   return createHmac('sha256', getAuthSecret()).update(payload).digest('base64url');
 }
 
-function encodeSession(payload: SessionPayload) {
+function encodeSignedPayload<T>(payload: T) {
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = createSignature(encodedPayload);
-
   return `${encodedPayload}.${signature}`;
 }
 
-function decodeSession(token: string): SessionPayload | null {
+function decodeSignedPayload<T>(token: string): T | null {
   const [encodedPayload, signature] = token.split('.');
 
   if (!encodedPayload || !signature) {
@@ -53,11 +57,13 @@ function decodeSession(token: string): SessionPayload | null {
     return null;
   }
 
-  const payload = JSON.parse(
-    Buffer.from(encodedPayload, 'base64url').toString('utf8')
-  ) as SessionPayload;
+  return JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as T;
+}
 
-  if (payload.expiresAt <= Date.now()) {
+function decodeSession(token: string): SessionPayload | null {
+  const payload = decodeSignedPayload<SessionPayload>(token);
+
+  if (!payload || payload.expiresAt <= Date.now()) {
     return null;
   }
 
@@ -65,10 +71,26 @@ function decodeSession(token: string): SessionPayload | null {
 }
 
 export function buildSessionToken(userId: string) {
-  return encodeSession({
+  return encodeSignedPayload<SessionPayload>({
     userId,
     expiresAt: Date.now() + SESSION_DURATION_MS,
   });
+}
+
+export function buildOAuthState(nextPath: string) {
+  return encodeSignedPayload<OAuthStatePayload>({
+    next: nextPath.startsWith('/') ? nextPath : '/dashboard',
+    nonce: randomUUID(),
+  });
+}
+
+export function parseOAuthState(state: string | null | undefined) {
+  if (!state) {
+    return '/dashboard';
+  }
+
+  const payload = decodeSignedPayload<OAuthStatePayload>(state);
+  return payload?.next?.startsWith('/') ? payload.next : '/dashboard';
 }
 
 function getSessionCookieOptions(expiresAt?: number) {
@@ -120,6 +142,8 @@ export async function getSessionUser() {
       id: true,
       email: true,
       name: true,
+      cognitoSub: true,
+      emailVerified: true,
       createdAt: true,
     },
   });

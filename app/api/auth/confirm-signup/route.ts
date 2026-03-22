@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { buildSessionToken, setSessionCookie } from '@/lib/auth';
-import { loginWithCognito, upsertCognitoUser } from '@/lib/cognito';
+import { confirmCognitoSignUp, loginWithCognito, upsertCognitoUser } from '@/lib/cognito';
 
 function parseIdToken(idToken: string) {
   return JSON.parse(
@@ -10,19 +10,23 @@ function parseIdToken(idToken: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password } = (await request.json()) as {
+    const { email, password, code } = (await request.json()) as {
       email?: string;
       password?: string;
+      code?: string;
     };
 
     const normalizedEmail = email?.trim().toLowerCase() ?? '';
+    const trimmedCode = code?.trim() ?? '';
 
-    if (!normalizedEmail || !password) {
+    if (!normalizedEmail || !password || !trimmedCode) {
       return NextResponse.json(
-        { error: '이메일과 비밀번호를 입력해주세요.' },
+        { error: '이메일, 비밀번호, 인증 코드를 입력해주세요.' },
         { status: 400 }
       );
     }
+
+    await confirmCognitoSignUp({ email: normalizedEmail, code: trimmedCode });
 
     const authResult = await loginWithCognito({
       email: normalizedEmail,
@@ -32,10 +36,9 @@ export async function POST(request: NextRequest) {
     const idToken = authResult.AuthenticationResult?.IdToken;
 
     if (!idToken) {
-      throw new Error('로그인 결과에서 id token을 받지 못했습니다.');
+      throw new Error('인증 완료 후 로그인에 실패했습니다.');
     }
 
-    // 🔥 핵심 변경
     const payload = parseIdToken(idToken);
 
     const user = await upsertCognitoUser({
@@ -51,13 +54,13 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Confirm signup error:', error);
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : '로그인에 실패했습니다.',
+            : '인증 코드 확인에 실패했습니다.',
       },
       { status: 500 }
     );

@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PresentationData, RecordingStatus } from '@/types';
 
 interface RecordingControlsProps {
@@ -56,7 +56,7 @@ export default function RecordingControls({
       mediaRecorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setAudioBlob(blob);
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorder.start();
@@ -64,7 +64,7 @@ export default function RecordingControls({
       setRecordingTime(0);
 
       timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime((prev) => prev + 1);
       }, 1000);
     } catch (error) {
       console.error('Error accessing microphone:', error);
@@ -91,15 +91,50 @@ export default function RecordingControls({
     setStatus('processing');
 
     try {
-      // FormData 생성
-      const formData = new FormData();
-
-      // 음성 파일을 webm에서 mp3로 변환 (Whisper는 mp3, mp4, mpeg, mpga, m4a, wav, webm 지원)
       const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
 
-      formData.append('audio', audioFile);
+      const presignedResponse = await fetch('/api/uploads/presigned', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: audioFile.name,
+          contentType: audioFile.type,
+        }),
+      });
+
+      if (!presignedResponse.ok) {
+        const error = await presignedResponse.json();
+        throw new Error(error.error || 'Presigned URL 생성에 실패했습니다.');
+      }
+
+      const { uploadUrl, key, fileUrl } = (await presignedResponse.json()) as {
+        uploadUrl: string;
+        key: string;
+        fileUrl: string;
+      };
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': audioFile.type,
+        },
+        body: audioFile,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('S3 업로드에 실패했습니다.');
+      }
+
+      const formData = new FormData();
       formData.append('title', title);
       formData.append('duration', recordingTime.toString());
+      formData.append('s3Key', key);
+      formData.append('audioUrl', fileUrl);
+      formData.append('fileName', audioFile.name);
+      formData.append('contentType', audioFile.type);
+
       if (presentationId) {
         formData.append('presentationId', presentationId);
       }
@@ -109,12 +144,10 @@ export default function RecordingControls({
       if (targetMaxDurationSec) {
         formData.append('targetMaxDurationSec', targetMaxDurationSec.toString());
       }
-
       if (script) {
         formData.append('script', script);
       }
 
-      // API 호출
       const response = await fetch('/api/analyze', {
         method: 'POST',
         body: formData,
@@ -126,8 +159,6 @@ export default function RecordingControls({
       }
 
       const result = await response.json();
-
-      // 분석 완료
       setStatus('completed');
       onAnalysisComplete(result);
     } catch (error) {
@@ -153,20 +184,21 @@ export default function RecordingControls({
   return (
     <div className="bg-white rounded-xl shadow-sm p-8">
       <div className="flex flex-col items-center space-y-6">
-        {/* Recording Visualizer */}
-        <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${
-          status === 'recording'
-            ? 'bg-red-100 ring-4 ring-red-300 ring-opacity-50 animate-pulse'
-            : status === 'processing'
-              ? 'bg-blue-100 ring-4 ring-blue-300 ring-opacity-50'
-              : 'bg-gray-100'
-        }`}>
+        <div
+          className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${
+            status === 'recording'
+              ? 'bg-red-100 ring-4 ring-red-300 ring-opacity-50 animate-pulse'
+              : status === 'processing'
+                ? 'bg-blue-100 ring-4 ring-blue-300 ring-opacity-50'
+                : 'bg-gray-100'
+          }`}
+        >
           {status === 'recording' ? (
             <div className="relative">
               <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center">
                 <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
                 </svg>
               </div>
               <div className="absolute inset-0 w-16 h-16 bg-red-500 rounded-full animate-ping opacity-20"></div>
@@ -186,17 +218,14 @@ export default function RecordingControls({
             </div>
           ) : (
             <svg className="w-16 h-16 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
             </svg>
           )}
         </div>
 
-        {/* Timer */}
         <div className="text-center">
-          <div className="text-4xl font-mono font-bold text-gray-900">
-            {formatTime(recordingTime)}
-          </div>
+          <div className="text-4xl font-mono font-bold text-gray-900">{formatTime(recordingTime)}</div>
           <p className="text-sm text-gray-500 mt-1">
             {status === 'recording'
               ? '녹음 중...'
@@ -210,18 +239,12 @@ export default function RecordingControls({
           </p>
         </div>
 
-        {/* Audio Player */}
         {audioBlob && status !== 'processing' && (
           <div className="w-full max-w-md">
-            <audio
-              controls
-              src={URL.createObjectURL(audioBlob)}
-              className="w-full"
-            />
+            <audio controls src={URL.createObjectURL(audioBlob)} className="w-full" />
           </div>
         )}
 
-        {/* Control Buttons */}
         <div className="flex gap-4">
           {status === 'idle' && !audioBlob && (
             <button
@@ -229,7 +252,7 @@ export default function RecordingControls({
               className="px-8 py-4 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="8"/>
+                <circle cx="12" cy="12" r="8" />
               </svg>
               녹음 시작
             </button>
@@ -241,7 +264,7 @@ export default function RecordingControls({
               className="px-8 py-4 bg-gradient-to-r from-gray-600 to-gray-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <rect x="6" y="6" width="12" height="12" rx="1"/>
+                <rect x="6" y="6" width="12" height="12" rx="1" />
               </svg>
               녹음 종료
             </button>

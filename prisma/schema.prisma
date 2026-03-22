@@ -9,47 +9,46 @@ datasource db {
   provider = "mysql"
 }
 
-// 사용자 테이블
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  passwordHash String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  passwordHash  String?
+  cognitoSub    String?  @unique
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   presentations Presentation[]
 
   @@map("users")
 }
 
-// 발표 기록 테이블
 model Presentation {
-  id        String   @id @default(cuid())
-  title     String
-  script    String?  @db.Text // 사용자가 입력한 대본 (선택사항)
-  audioUrl  String   // S3에 저장된 음성 파일 URL
+  id                   String   @id @default(cuid())
+  title                String
+  script               String?  @db.Text
+  audioUrl             String
   targetMinDurationSec Int?
   targetMaxDurationSec Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   userId String?
-  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  transcript      Transcript?
-  analysisResult  AnalysisResult?
-  feedback        Feedback?
-  questions       Question[]
+  transcript     Transcript?
+  analysisResult AnalysisResult?
+  feedback       Feedback?
+  questions      Question[]
 
   @@map("presentations")
   @@index([userId])
 }
 
-// 음성 인식 결과 (Transcript)
 model Transcript {
   id   String @id @default(cuid())
-  text String @db.Text // AI가 인식한 텍스트
+  text String @db.Text
 
   presentationId String       @unique
   presentation   Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
@@ -57,23 +56,19 @@ model Transcript {
   @@map("transcripts")
 }
 
-// 분석 결과 테이블
 model AnalysisResult {
   id       String @id @default(cuid())
-  duration Int // 발표 시간 (초)
+  duration Int
 
-  // 말하기 속도
-  speakingSpeedWpm    Int // words per minute
-  speakingSpeedRating String // 'slow' | 'normal' | 'fast'
+  speakingSpeedWpm    Int
+  speakingSpeedRating String
 
-  // 추임새
   fillerWordsTotal Int
-  fillerWords       Json // { word: string; count: number }[]
+  fillerWords      Json
 
-  // 침묵 구간
-  silencesTotal      Int
-  silencesAvgDuration Float // 평균 침묵 길이 (초)
-  silencesLongest     Float // 최장 침묵 길이 (초)
+  silencesTotal       Int
+  silencesAvgDuration Float
+  silencesLongest     Float
 
   presentationId String       @unique
   presentation   Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
@@ -83,12 +78,11 @@ model AnalysisResult {
   @@map("analysis_results")
 }
 
-// 발음 분석 결과 (대본이 있는 경우만)
 model PronunciationAnalysis {
-  id       String @id @default(cuid())
-  accuracy Int // 발음 정확도 0-100
+  id   String @id @default(cuid())
+  accuracy Int
 
-  wellPronounced Json // string[] - 잘 발음한 단어들
+  wellPronounced Json
 
   analysisResultId String         @unique
   analysisResult   AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
@@ -98,13 +92,12 @@ model PronunciationAnalysis {
   @@map("pronunciation_analyses")
 }
 
-// 발음 오류
 model PronunciationMistake {
   id         String @id @default(cuid())
-  expected   String // 대본의 단어
-  recognized String // 인식된 발음
-  position   Int // 문장에서의 위치
-  severity   String // 'minor' | 'moderate' | 'major'
+  expected   String
+  recognized String
+  position   Int
+  severity   String
 
   pronunciationAnalysisId String
   pronunciationAnalysis   PronunciationAnalysis @relation(fields: [pronunciationAnalysisId], references: [id], onDelete: Cascade)
@@ -113,14 +106,13 @@ model PronunciationMistake {
   @@index([pronunciationAnalysisId])
 }
 
-// AI 피드백 테이블
 model Feedback {
   id      String @id @default(cuid())
-  overall String @db.Text // 종합 평가
-  score   Int // 0-100
+  overall String @db.Text
+  score   Int
 
-  strengths    Json // string[] - 강점
-  improvements Json // string[] - 개선점
+  strengths    Json
+  improvements Json
 
   presentationId String       @unique
   presentation   Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
@@ -128,12 +120,11 @@ model Feedback {
   @@map("feedbacks")
 }
 
-// 예상 질문 테이블
 model Question {
   id         String @id @default(cuid())
   question   String @db.Text
-  category   String // 'content' | 'clarification' | 'challenge'
-  difficulty String // 'easy' | 'medium' | 'hard'
+  category   String
+  difficulty String
 
   presentationId String
   presentation   Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)

@@ -1,5 +1,5 @@
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
-import { PrismaClient } from '@prisma/client';
+﻿import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaClient } from '../node_modules/.prisma/client';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -26,6 +26,7 @@ function createPrismaClient() {
     password: decodeURIComponent(parsedUrl.password),
     database,
     connectionLimit: 5,
+    allowPublicKeyRetrieval: true,
   });
 
   return new PrismaClient({ adapter });
