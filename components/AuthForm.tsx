@@ -86,7 +86,6 @@ export default function AuthForm({ mode }: AuthFormProps) {
       }
 
       router.push(nextPath);
-      router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : '요청에 실패했습니다.');
     } finally {
