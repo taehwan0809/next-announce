@@ -4,10 +4,10 @@ import { getSessionUser } from '@/lib/auth';
 import { transcribeAudio, analyzePresentation, analyzePronunciation } from '@/lib/openai';
 import { presentationInclude, serializePresentation } from '@/lib/presentations';
 import { prisma } from '@/lib/prisma';
-import { buildS3FileUrl, deleteFromS3, getFileFromS3, uploadToS3 } from '@/lib/s3';
+import { deleteFromS3, getFileFromS3, uploadToS3 } from '@/lib/s3';
 
 export async function POST(request: NextRequest) {
-  let uploadedAudioUrl: string | null = null;
+  let uploadedKey: string | null = null;
   let shouldCleanupUploadedAudio = false;
 
   try {
@@ -20,21 +20,28 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const rawAudioFile = formData.get('audio');
     const audioFile = rawAudioFile instanceof File ? rawAudioFile : null;
+
     const presentationId = (formData.get('presentationId') as string | null)?.trim() ?? '';
     const title = (formData.get('title') as string | null)?.trim() ?? '';
+
     const rawScript = formData.get('script') as string | null;
     const script = rawScript?.trim() ? rawScript.trim() : null;
+
     const s3Key = (formData.get('s3Key') as string | null)?.trim() ?? '';
-    const providedAudioUrl = (formData.get('audioUrl') as string | null)?.trim() ?? '';
+
     const fileName = (formData.get('fileName') as string | null)?.trim() || 'recording.webm';
     const contentType = (formData.get('contentType') as string | null)?.trim() || 'audio/webm';
+
     const duration = Number.parseFloat(formData.get('duration') as string);
+
     const targetMinDurationSec = Number.parseFloat((formData.get('targetMinDurationSec') as string | null) ?? '');
     const targetMaxDurationSec = Number.parseFloat((formData.get('targetMaxDurationSec') as string | null) ?? '');
+
     const normalizedTargetMinDurationSec =
       Number.isFinite(targetMinDurationSec) && targetMinDurationSec > 0
         ? Math.round(targetMinDurationSec)
         : null;
+
     const normalizedTargetMaxDurationSec =
       Number.isFinite(targetMaxDurationSec) && targetMaxDurationSec > 0
         ? Math.round(targetMaxDurationSec)
@@ -61,20 +68,26 @@ export async function POST(request: NextRequest) {
           })
         : null;
 
-    let audioUrl = providedAudioUrl;
+    let audioKey: string;
     let transcriptionSource: File;
 
+    // ✅ 새 파일 업로드
     if (audioFile) {
       const arrayBuffer = await audioFile.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      audioUrl = await uploadToS3(buffer, audioFile.name, audioFile.type);
-      uploadedAudioUrl = audioUrl;
+
+      audioKey = await uploadToS3(buffer, audioFile.name, audioFile.type);
+      uploadedKey = audioKey;
       shouldCleanupUploadedAudio = true;
+
       transcriptionSource = audioFile;
-    } else {
-      audioUrl = audioUrl || buildS3FileUrl(s3Key);
-      uploadedAudioUrl = audioUrl;
+    } 
+    // ✅ presigned 업로드된 파일 사용
+    else {
+      audioKey = s3Key;
+      uploadedKey = audioKey;
       shouldCleanupUploadedAudio = true;
+
       transcriptionSource = await getFileFromS3(s3Key, fileName, contentType);
     }
 
@@ -116,101 +129,38 @@ export async function POST(request: NextRequest) {
           data: {
             title,
             script,
-            audioUrl,
+            audioUrl: audioKey, // ✅ key 저장
             targetMinDurationSec: normalizedTargetMinDurationSec,
             targetMaxDurationSec: normalizedTargetMaxDurationSec,
+
             transcript: {
               upsert: {
-                create: {
-                  text: transcript.text,
-                },
-                update: {
-                  text: transcript.text,
-                },
+                create: { text: transcript.text },
+                update: { text: transcript.text },
               },
             },
+
             analysisResult: {
               upsert: {
                 create: {
                   ...analysisPayload,
-                  pronunciationAnalysis: pronunciationData
-                    ? {
-                        create: {
-                          accuracy: pronunciationData.accuracy,
-                          wellPronounced: pronunciationData.wellPronounced,
-                          mistakes: {
-                            create: pronunciationData.mistakes.map((mistake) => ({
-                              expected: mistake.expected,
-                              recognized: mistake.recognized,
-                              position: mistake.position,
-                              severity: mistake.severity,
-                            })),
-                          },
-                        },
-                      }
-                    : undefined,
                 },
                 update: {
                   ...analysisPayload,
-                  pronunciationAnalysis: pronunciationData
-                    ? {
-                        upsert: {
-                          create: {
-                            accuracy: pronunciationData.accuracy,
-                            wellPronounced: pronunciationData.wellPronounced,
-                            mistakes: {
-                              create: pronunciationData.mistakes.map((mistake) => ({
-                                expected: mistake.expected,
-                                recognized: mistake.recognized,
-                                position: mistake.position,
-                                severity: mistake.severity,
-                              })),
-                            },
-                          },
-                          update: {
-                            accuracy: pronunciationData.accuracy,
-                            wellPronounced: pronunciationData.wellPronounced,
-                            mistakes: {
-                              deleteMany: {},
-                              create: pronunciationData.mistakes.map((mistake) => ({
-                                expected: mistake.expected,
-                                recognized: mistake.recognized,
-                                position: mistake.position,
-                                severity: mistake.severity,
-                              })),
-                            },
-                          },
-                        },
-                      }
-                    : existingPresentation.analysisResult?.pronunciationAnalysis
-                      ? { delete: true }
-                      : undefined,
                 },
               },
             },
+
             feedback: {
               upsert: {
-                create: {
-                  overall: feedback.overall,
-                  score: feedback.score,
-                  strengths: feedback.strengths,
-                  improvements: feedback.improvements,
-                },
-                update: {
-                  overall: feedback.overall,
-                  score: feedback.score,
-                  strengths: feedback.strengths,
-                  improvements: feedback.improvements,
-                },
+                create: feedback,
+                update: feedback,
               },
             },
+
             questions: {
               deleteMany: {},
-              create: questions.map((q) => ({
-                question: q.question,
-                category: q.category,
-                difficulty: q.difficulty,
-              })),
+              create: questions,
             },
           },
           include: presentationInclude,
@@ -219,50 +169,25 @@ export async function POST(request: NextRequest) {
           data: {
             title,
             script,
-            audioUrl,
+            audioUrl: audioKey, // ✅ key 저장
             targetMinDurationSec: normalizedTargetMinDurationSec,
             targetMaxDurationSec: normalizedTargetMaxDurationSec,
             userId: user.id,
+
             transcript: {
-              create: {
-                text: transcript.text,
-              },
+              create: { text: transcript.text },
             },
+
             analysisResult: {
-              create: {
-                ...analysisPayload,
-                pronunciationAnalysis: pronunciationData
-                  ? {
-                      create: {
-                        accuracy: pronunciationData.accuracy,
-                        wellPronounced: pronunciationData.wellPronounced,
-                        mistakes: {
-                          create: pronunciationData.mistakes.map((mistake) => ({
-                            expected: mistake.expected,
-                            recognized: mistake.recognized,
-                            position: mistake.position,
-                            severity: mistake.severity,
-                          })),
-                        },
-                      },
-                    }
-                  : undefined,
-              },
+              create: analysisPayload,
             },
+
             feedback: {
-              create: {
-                overall: feedback.overall,
-                score: feedback.score,
-                strengths: feedback.strengths,
-                improvements: feedback.improvements,
-              },
+              create: feedback,
             },
+
             questions: {
-              create: questions.map((q) => ({
-                question: q.question,
-                category: q.category,
-                difficulty: q.difficulty,
-              })),
+              create: questions,
             },
           },
           include: presentationInclude,
@@ -270,26 +195,29 @@ export async function POST(request: NextRequest) {
 
     shouldCleanupUploadedAudio = false;
 
-    if (existingPresentation?.audioUrl && existingPresentation.audioUrl !== audioUrl) {
+    // 기존 파일 삭제
+    if (existingPresentation?.audioUrl && existingPresentation.audioUrl !== audioKey) {
       try {
         await deleteFromS3(existingPresentation.audioUrl);
       } catch (cleanupError) {
-        console.error('Failed to delete replaced audio file from S3:', cleanupError);
+        console.error('Failed to delete old file:', cleanupError);
       }
     }
 
     const response = serializePresentation(presentation);
     return NextResponse.json(response);
+
   } catch (error) {
-    if (shouldCleanupUploadedAudio && uploadedAudioUrl) {
+    if (shouldCleanupUploadedAudio && uploadedKey) {
       try {
-        await deleteFromS3(uploadedAudioUrl);
+        await deleteFromS3(uploadedKey);
       } catch (cleanupError) {
-        console.error('Failed to clean up uploaded audio after analysis error:', cleanupError);
+        console.error('Failed cleanup:', cleanupError);
       }
     }
 
     console.error('Analysis error:', error);
+
     return NextResponse.json(
       {
         error: 'Failed to analyze presentation',
